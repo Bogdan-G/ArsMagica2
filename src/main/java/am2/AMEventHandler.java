@@ -14,7 +14,6 @@ import am2.buffs.BuffEffectTemporalAnchor;
 import am2.buffs.BuffList;
 import am2.buffs.BuffStatModifiers;
 import am2.damage.DamageSources;
-import am2.enchantments.EnchantmentSoulbound;
 import am2.entities.EntityFlicker;
 import am2.items.ItemsCommonProxy;
 import am2.network.AMNetHandler;
@@ -140,7 +139,6 @@ public class AMEventHandler{
 
 	@SubscribeEvent(priority = EventPriority.HIGHEST)
 	public void onEntityDeath(LivingDeathEvent event){
-		String s = EnchantmentSoulbound.class.getName();
 		EntityLivingBase soonToBeDead = event.entityLiving;
 		if (soonToBeDead.isPotionActive(BuffList.temporalAnchor.id)){
 			event.setCanceled(true);
@@ -241,6 +239,8 @@ public class AMEventHandler{
 				xVelocity = velocityTarget.motionX * 1.75 * Math.abs(vec.xCoord);
 				zVelocity = velocityTarget.motionZ * 1.75 * Math.abs(vec.zCoord);
 				break;
+			default:
+				break;
 			}
 
 			float maxHorizontalVelocity = 1.45f;
@@ -320,8 +320,6 @@ public class AMEventHandler{
 
 		World world = ent.worldObj;
 
-		boolean isRemote = world.isRemote;
-
 		BuffStatModifiers.instance.applyStatModifiersBasedOnBuffs(ent);
 
 		ExtendedProperties extendedProperties;
@@ -333,7 +331,7 @@ public class AMEventHandler{
 		if (ent instanceof EntityPlayer){
 
 			if (ent.worldObj.isRemote){
-				int divisor = ExtendedProperties.For(ent).getAuraDelay() > 0 ? ExtendedProperties.For(ent).getAuraDelay() : 1;
+				int divisor = extendedProperties.getAuraDelay() > 0 ? extendedProperties.getAuraDelay() : 1;
 				if (ent.ticksExisted % divisor == 0)
 					AMCore.instance.proxy.particleManager.spawnAuraParticles(ent);
 				AMCore.proxy.setViewSettings();
@@ -394,7 +392,7 @@ public class AMEventHandler{
 			}
 		}
 
-		if (extendedProperties.getContingencyType() == ContingencyTypes.FALL && !ent.onGround && extendedProperties.getContingencyEffect() != null && ent.fallDistance >= 4f){
+		if (!ent.onGround && ent.fallDistance >= 4f && extendedProperties.getContingencyType() == ContingencyTypes.FALL && extendedProperties.getContingencyEffect() != null){
 			int distanceToGround = MathUtilities.getDistanceToGround(ent, world);
 			if (distanceToGround < -8 * ent.motionY){
 				extendedProperties.procContingency();
@@ -473,6 +471,8 @@ public class AMEventHandler{
 			case BuffPowerLevel.High:
 				extendedProperties.setFallProtection(45);
 				break;
+			default:
+				break;
 			}
 		}
 
@@ -484,7 +484,10 @@ public class AMEventHandler{
 
 
 		//slowfall/shrink buff
-		if (event.entityLiving.isPotionActive(BuffList.slowfall) || event.entityLiving.isPotionActive(BuffList.shrink) || (!ent.isSneaking() && ent instanceof EntityPlayer && AffinityData.For(ent).getAffinityDepth(Affinity.NATURE) == 1.0f)){
+		// (isSneaking calls DataWatcher which are slow, so we test it late)
+		if ( event.entityLiving.isPotionActive(BuffList.slowfall)
+		  || event.entityLiving.isPotionActive(BuffList.shrink)
+		  || (ent instanceof EntityPlayer && AffinityData.For(ent).getAffinityDepth(Affinity.NATURE) == 1.0f && !ent.isSneaking())){
 			if (!event.entityLiving.onGround && event.entityLiving.motionY < 0.0D){
 				event.entityLiving.motionY *= 0.79999999999999998D;
 			}
@@ -607,14 +610,18 @@ public class AMEventHandler{
 			}
 		}
 
-		if (event.source.getSourceOfDamage() instanceof EntityPlayer && ((EntityPlayer)event.source.getSourceOfDamage()).inventory.armorInventory[2] != null && ((EntityPlayer)event.source.getSourceOfDamage()).inventory.armorInventory[2].getItem() == ItemsCommonProxy.earthGuardianArmor && ((EntityPlayer)event.source.getSourceOfDamage()).getCurrentEquippedItem() == null){
+		Entity entitySource = event.source.getSourceOfDamage();
+		if ( entitySource instanceof EntityPlayer
+		  && ((EntityPlayer)entitySource).inventory.armorInventory[2] != null
+		  && ((EntityPlayer)entitySource).inventory.armorInventory[2].getItem() == ItemsCommonProxy.earthGuardianArmor
+		  && ((EntityPlayer)entitySource).getCurrentEquippedItem() == null ){
 			event.ammount += 4;
 
-			double deltaZ = event.entityLiving.posZ - event.source.getSourceOfDamage().posZ;
-			double deltaX = event.entityLiving.posX - event.source.getSourceOfDamage().posX;
+			double deltaZ = event.entityLiving.posZ - entitySource.posZ;
+			double deltaX = event.entityLiving.posX - entitySource.posX;
 			double angle = Math.atan2(deltaZ, deltaX);
-			double speed = ((EntityPlayer)event.source.getSourceOfDamage()).isSprinting() ? 3 : 2;
-			double vertSpeed = ((EntityPlayer)event.source.getSourceOfDamage()).isSprinting() ? 0.5 : 0.325;
+			double speed = ((EntityPlayer)entitySource).isSprinting() ? 3 : 2;
+			double vertSpeed = ((EntityPlayer)entitySource).isSprinting() ? 0.5 : 0.325;
 
 			if (event.entityLiving instanceof EntityPlayer){
 				AMNetHandler.INSTANCE.sendVelocityAddPacket(event.entityLiving.worldObj, event.entityLiving, speed * Math.cos(angle), vertSpeed, speed * Math.sin(angle));
@@ -638,9 +645,8 @@ public class AMEventHandler{
 		if (ent.isPotionActive(BuffList.fury.id))
 			event.ammount /= 2;
 
-		if (event.source.getSourceOfDamage() != null &&
-				event.source.getSourceOfDamage() instanceof EntityLivingBase &&
-				((EntityLivingBase)event.source.getSourceOfDamage()).isPotionActive(BuffList.shrink))
+		if ( entitySource instanceof EntityLivingBase
+		  && ((EntityLivingBase)entitySource).isPotionActive(BuffList.shrink))
 			event.ammount /= 2;
 	}
 
@@ -668,7 +674,7 @@ public class AMEventHandler{
 
 	@SubscribeEvent
 	public void onPlayerPickupItem(EntityItemPickupEvent event){
-		if (!(event.entityPlayer instanceof EntityPlayer))
+		if (event.entityPlayer == null)
 			return;
 
 		if (!event.entityPlayer.worldObj.isRemote && ExtendedProperties.For(event.entityPlayer).getMagicLevel() <= 0 && event.item.getEntityItem().getItem() == ItemsCommonProxy.arcaneCompendium){
